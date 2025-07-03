@@ -5,7 +5,7 @@ import time
 import random
 import openpyxl
 from typing import Dict, Any
-from openpyxl.styles import Alignment, PatternFill
+from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from copy import copy
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -228,20 +228,25 @@ def load_excel_template(template_file: str) -> openpyxl.Workbook:
     return openpyxl.load_workbook(template_file)
 
 def safely_unmerge_row_cells(ws, row: int):
-    """Safely unmerge any merged cells in the specified row"""
+    """Safely unmerge any merged cells in the specified row - IMPROVED VERSION"""
     try:
         ranges_to_unmerge = []
-        for merged_range in ws.merged_cells.ranges:
-            if merged_range.min_row <= row <= merged_range.max_row:
-                ranges_to_unmerge.append(str(merged_range))
+        # Create a copy of merged_cells to avoid modification during iteration
+        merged_ranges = list(ws.merged_cells.ranges)
         
-        for range_str in ranges_to_unmerge:
+        for merged_range in merged_ranges:
+            if merged_range.min_row <= row <= merged_range.max_row:
+                ranges_to_unmerge.append(merged_range)
+        
+        for merged_range in ranges_to_unmerge:
             try:
-                ws.unmerge_cells(range_str)
-            except (ValueError, KeyError):
+                ws.unmerge_cells(str(merged_range))
+                print(f"Unmerged range: {merged_range}")
+            except (ValueError, KeyError) as e:
+                print(f"Could not unmerge range {merged_range}: {e}")
                 continue
-    except Exception:
-        # If any error occurs during unmerging, just continue
+    except Exception as e:
+        print(f"Error in safely_unmerge_row_cells: {e}")
         pass
 
 def copy_row_format(ws, source_row: int, target_row: int):
@@ -313,8 +318,267 @@ def set_product_data(ws, row: int, product: Dict[str, Any]):
     except Exception as e:
         print(f"Warning: Error in setting product data for row {row}: {str(e)}")
 
+def add_additional_rows(ws, last_item_row: int):
+    """Add 9 additional rows after the last item with specific formatting - FIXED VERSION"""
+    try:
+        start_row = last_item_row + 1
+        print(f"Adding 9 additional rows starting from row {start_row}")
+
+        # Add 9 rows
+        for i in range(9):
+            current_row = start_row + i
+
+            # First, check if we need to unmerge any cells that might interfere
+            safely_unmerge_row_cells(ws, current_row)
+
+            # Insert row if needed (this ensures the row exists)
+            if current_row > ws.max_row:
+                ws.insert_rows(current_row)
+
+            # Set row height to 25px
+            ws.row_dimensions[current_row].height = 25
+
+            # Add content to columns safely (avoiding merged cells)
+            try:
+                # Column A (start margin)
+                start_cell = ws.cell(row=current_row, column=1)
+                # Only set value if it's not a merged cell
+                if not isinstance(start_cell, openpyxl.cell.MergedCell):
+                    start_cell.value = ""
+
+                # Column L (end margin)
+                end_cell = ws.cell(row=current_row, column=12)
+                # Only set value if it's not a merged cell
+                if not isinstance(end_cell, openpyxl.cell.MergedCell):
+                    end_cell.value = ""
+
+                # Clear any existing content in the middle columns (B-K)
+                for col in range(2, 12):  # Columns B through K
+                    cell = ws.cell(row=current_row, column=col)
+                    # Only modify if it's not a merged cell
+                    if not isinstance(cell, openpyxl.cell.MergedCell):
+                        cell.value = ""
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
+
+            except Exception as cell_error:
+                print(f"Warning: Error setting cell content in row {current_row}: {cell_error}")
+                continue
+
+        print(f"Successfully added 8 additional rows starting from row {start_row}")
+        return start_row + 8  # Return the last added row number
+
+    except Exception as e:
+        print(f"Error in add_additional_rows: {e}")
+        return last_item_row  # Return original last row if failed
+    
+def format_expedition_row(ws, last_item_row: int):
+    """
+    Formats the second newly added row for 'Expedícia objednávky'.
+
+    This function merges columns I, J, K, and L in the second row after the last item,
+    adds the specified text, and applies bolding, font size, alignment, and a border.
+
+    Args:
+        ws: The openpyxl worksheet object.
+        last_item_row: The row number of the last item, before adding new rows.
+    """
+    try:
+        # The 8 new rows start at last_item_row + 1.
+        # We need to work on the second of these rows.
+        target_row = last_item_row + 2
+
+        print(f"Formatting expedition row at actual row number {target_row}")
+
+        # Define the cell range to merge: columns I, J, K, L
+        merge_start_col = 9  # Column I
+        merge_end_col = 12   # Column L
+
+        # Merge the cells first
+        ws.merge_cells(
+            start_row=target_row,
+            start_column=merge_start_col,
+            end_row=target_row,
+            end_column=merge_end_col
+        )
+
+        # Get the top-left cell of the merged range to apply value and core styles
+        merged_cell = ws.cell(row=target_row, column=merge_start_col)
+
+        # 1. Set the value and main styles on the top-left cell
+        merged_cell.value = 'Expedícia objednávky'
+        merged_cell.font = Font(name='Calibri', size=20, bold=True)
+        merged_cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        # 2. Define the border style
+        side = Side(style='medium', color='000000')
+        border_style = Border(left=side, right=side, top=side, bottom=side)
+
+        # 3. Apply the border to all cells within the merged range
+        for col in range(merge_start_col, merge_end_col + 1):
+            cell_to_style = ws.cell(row=target_row, column=col)
+            cell_to_style.border = border_style
+
+        print(f"Successfully formatted 'Expedícia objednávky' in merged cells at row {target_row}")
+
+    except Exception as e:
+        print(f"An error occurred in format_expedition_row: {e}")
+
+
+def format_palette_info_row(ws, last_item_row: int):
+    """
+    Formats the third newly added row for palette information.
+
+    This function formats the row for 'Typ palety', 'Rozmer', and 'Váha'
+    by setting values, merging cells, and applying borders.
+
+    Args:
+        ws: The openpyxl worksheet object.
+        last_item_row: The row number of the last item, before adding new rows.
+    """
+    try:
+        # The 'Expedícia objednávky' row is at last_item_row + 2.
+        # This function targets the next row, which is the third new row.
+        target_row = last_item_row + 3
+
+        print(f"Formatting palette info row at actual row number {target_row}")
+
+        # Define a reusable thin border style
+        side = Side(style='thin', color='000000')
+        border_style = Border(left=side, right=side, bottom=side)
+
+        # Define a reusable alignment style
+        alignment_style = Alignment(horizontal='left', vertical='center')
+
+        # Task 1: Column I - 'Typ palty'
+        cell_i = ws.cell(row=target_row, column=9)
+        cell_i.value = 'Typ palty'
+        cell_i.border = border_style
+        cell_i.alignment = alignment_style
+        cell_i.font = Font(name='Calibri', size=16)
+
+        # Task 2: Merge columns J and K for 'Rozmer'
+        ws.merge_cells(start_row=target_row, start_column=10, end_row=target_row, end_column=11)
+        cell_j = ws.cell(row=target_row, column=10)
+        cell_j.value = 'Rozmer'
+        cell_j.alignment = alignment_style
+        cell_j.font = Font(name='Calibri', size=16)
+
+        # Apply border to both cells in the merged range to ensure it draws correctly
+        ws.cell(row=target_row, column=10).border = border_style
+        ws.cell(row=target_row, column=11).border = border_style
+
+        # Task 3: Column L - 'Váha' (assuming L, as K is merged)
+        cell_l = ws.cell(row=target_row, column=12)
+        cell_l.value = 'Váha'
+        cell_l.border = border_style
+        cell_l.alignment = alignment_style
+        cell_l.font = Font(name='Calibri', size=16)
+
+        print(f"Successfully formatted palette info row at row {target_row}")
+
+    except Exception as e:
+        print(f"An error occurred in format_palette_info_row: {e}")
+
+
+def format_final_rows(ws, last_item_row: int):
+    """
+    Formats the final 4 newly added rows (rows 4, 5, 6, and 7).
+
+    This function performs two main tasks:
+    1. Adds a left-side border to each cell in column I for these four rows.
+    2. Merges the 8 cells across columns J and K for these four rows into a
+       single large box and applies a border to it.
+
+    Args:
+        ws: The openpyxl worksheet object.
+        last_item_row: The row number of the last item, before adding new rows.
+    """
+    try:
+        # The target rows are the 4th, 5th, 6th, and 7th added rows.
+        start_row = last_item_row + 4
+        end_row = last_item_row + 7
+
+        print(f"Formatting final notes section from row {start_row} to {end_row}")
+
+        # Define the border styles we will need
+        left_border = Border(left=Side(style='thin', color='000000'))
+
+        full_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+
+        # Task 1: Add a left border to column I for each of the four rows
+        for row in range(start_row, end_row + 1):
+            cell = ws.cell(row=row, column=9)  # Column I
+            cell.border = left_border
+
+        # Task 2: Merge columns J and K across all four rows into one large box
+        ws.merge_cells(
+            start_row=start_row,
+            start_column=10,  # Column J
+            end_row=end_row,
+            end_column=11     # Column K
+        )
+
+        # Apply a border to all cells within the merged J-K range.
+        for row in range(start_row, end_row + 1):
+            for col in range(10, 12):  # Columns J and K
+                ws.cell(row=row, column=col).border = full_border
+
+        print(f"Successfully formatted the final 4 rows.")
+
+    except Exception as e:
+        print(f"An error occurred in format_final_rows: {e}")
+
+def format_footer_rows(ws, last_item_row: int):
+    """
+    Formats the final footer rows (the 8th and 9th added rows).
+
+    This function assumes the rows have already been created and performs two tasks:
+    1. On the 8th row after the items, it adds a left border to columns I, J, K, and L.
+    2. On the 9th row, it applies a full border to all cells (A–L) to create a
+       final, fully enclosed row.
+
+    Args:
+        ws: The openpyxl worksheet object.
+        last_item_row: The row number of the last item, before adding new rows.
+    """
+    try:
+        # Define the row numbers for the last two rows.
+        signature_row_num = last_item_row + 8
+        final_border_row_num = last_item_row + 9
+
+        print(f"Formatting footer rows at {signature_row_num} and {final_border_row_num}")
+
+        # Task 1: Format the 8th added row
+        # Apply a left border to columns I, J, K, and L.
+        left_border = Border(left=Side(style='thin', color='000000'))
+        for col in range(9, 13):  # Columns I through L
+            cell = ws.cell(row=signature_row_num, column=col)
+            cell.border = left_border
+
+        # Task 2: Apply a full border to all cells in the 9th added row
+        full_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+
+        for col in range(1, 13):  # Columns A through L
+            cell = ws.cell(row=final_border_row_num, column=col)
+            cell.border = full_border
+
+        print("Successfully formatted the footer rows.")
+
+    except Exception as e:
+        print(f"An error occurred in format_footer_rows: {e}")
+
 def map_data_to_excel(wb: openpyxl.Workbook, data: Dict[str, Any]) -> openpyxl.Workbook:
-    """Map JSON data to Excel template"""
+    """Map JSON data to Excel template - FIXED VERSION"""
     ws = wb.active
     
     try:
@@ -359,7 +623,47 @@ def map_data_to_excel(wb: openpyxl.Workbook, data: Dict[str, Any]) -> openpyxl.W
             row = 11 + idx
             set_product_data(ws, row, product)
         
+        # Calculate last item row
+        last_item_row = 11 + len(items) if items else 12
+        
+        print(f"Last item row: {last_item_row}")
+        
+        # Clean up any existing extra rows BEFORE adding new ones
+        current_max_row = ws.max_row
+        if current_max_row > last_item_row:
+            print(f"Cleaning extra rows from {last_item_row + 1} to {current_max_row}")
+            
+            # Unmerge cells in rows we're about to delete
+            for row_to_clean in range(last_item_row + 1, current_max_row + 1):
+                safely_unmerge_row_cells(ws, row_to_clean)
+            
+            # Delete the extra rows
+            rows_to_delete = current_max_row - last_item_row
+            if rows_to_delete > 0:
+                try:
+                    ws.delete_rows(last_item_row + 1, rows_to_delete)
+                    print(f"Deleted {rows_to_delete} extra rows")
+                except Exception as e:
+                    print(f"Could not delete rows: {e}")
+        
+        # NOW add the 7 additional rows (after cleaning)
+        final_row = add_additional_rows(ws, last_item_row)
+        print(f"Final row after adding additional rows: {final_row}")
+
+        # Format the expedition row
+        format_expedition_row(ws, last_item_row)
+
+        format_palette_info_row(ws, last_item_row)
+
+        format_final_rows(ws, last_item_row)
+
+        format_footer_rows(ws, last_item_row)
+
+    
+
+        
         return wb
+        
     except Exception as e:
         print(f"Warning: Error in mapping data: {str(e)}")
         return wb
@@ -370,8 +674,10 @@ def process_excel_imputation(data: Dict[str, Any], template_file: str, output_fi
         # Load template
         wb = load_excel_template(template_file)
         
-        # Map data and save
+        # Map data
         wb = map_data_to_excel(wb, data)
+        
+        # Save the file
         wb.save(output_file)
         
         print(f"Successfully created Excel file: {output_file}")
@@ -454,4 +760,4 @@ def main():
         print(f"Error in main process: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    main()

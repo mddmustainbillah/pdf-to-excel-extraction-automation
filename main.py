@@ -5,7 +5,7 @@ import time
 import random
 import openpyxl
 from typing import Dict, Any
-from openpyxl.styles import Alignment, PatternFill
+from openpyxl.styles import Alignment, PatternFill, Border, Side, Font
 from copy import copy
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -17,7 +17,7 @@ load_dotenv()
 # PDF Processing Functions
 ###########################################
 
-def process_pdf(pdf_path, max_retries=5, initial_delay=1):
+def process_pdf(pdf_path, max_retries=5, initial_delay=2):
     """Process PDF directly with Gemini API and return extracted data."""
     
     for attempt in range(max_retries):      
@@ -285,7 +285,7 @@ def prepare_product_rows(ws, num_items: int):
     # We need to add (num_items - 2) rows after row 13
     for i in range(num_items - 2):
         try:
-            # Insert row
+            # Insert row at position 14 + i
             ws.insert_rows(14 + i)
             # Copy format from row 13 (second product row) to new row
             copy_row_format(ws, 13, 14 + i)
@@ -293,6 +293,55 @@ def prepare_product_rows(ws, num_items: int):
             ws.cell(row=14 + i, column=1, value=f"{3 + i}.")
         except Exception as e:
             print(f"Warning: Error in preparing row {14 + i}: {str(e)}")
+
+def _recreate_expedicia_section(ws, new_start_row: int):
+    """Recreates the Expedícia objednávky header at the new position with hardcoded formatting."""
+    
+    # Define the exact header range
+    header_range_str = f'I{new_start_row}:L{new_start_row}'
+    
+    # 1. Explicitly unmerge the header range if it exists as a merged cell
+    for merged_range in list(ws.merged_cells.ranges):
+        if str(merged_range) == header_range_str:
+            try:
+                ws.unmerge_cells(header_range_str)
+            except (ValueError, KeyError):
+                pass # Already unmerged or not a valid range
+            break # Found and unmerged, exit loop
+
+    # 2. Clear content and formatting of individual cells within the header range
+    for col_idx in range(9, 13): # Columns I (9) to L (12)
+        cell = ws.cell(row=new_start_row, column=col_idx)
+        cell.value = None
+        cell.font = Font()
+        cell.fill = PatternFill()
+        cell.border = Border()
+        cell.alignment = Alignment()
+        cell.number_format = 'General'
+        cell.protection = None
+
+    # Define common border style
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # 3. Merge cells for the header
+    ws.merge_cells(header_range_str)
+    
+    # 4. Get the top-left cell of the merged range (which is the only writable cell)
+    header_cell = ws.cell(row=new_start_row, column=9)  # Column I
+    
+    # 5. Set value, alignment, font, and border for the merged cell
+    header_cell.value = "Expedícia objednávky"
+    header_cell.alignment = Alignment(horizontal='center', vertical='center')
+    header_cell.font = Font(bold=True)
+    header_cell.border = thin_border
+
+    # Set a fixed row height for the header to ensure vertical centering
+    ws.row_dimensions[new_start_row].height = 20 # Adjust as needed for proper display
 
 def set_product_data(ws, row: int, product: Dict[str, Any]):
     """Set product data in the correct cells with proper formatting"""
@@ -332,6 +381,15 @@ def map_data_to_excel(wb: openpyxl.Workbook, data: Dict[str, Any]) -> openpyxl.W
         else:
             specific_reqs = ['']  # Empty list with one empty string to maintain structure
         
+        # Explicitly unmerge I4:L9 if it's already merged
+        for merged_range in list(ws.merged_cells.ranges):
+            if str(merged_range) == 'I4:L9':
+                try:
+                    ws.unmerge_cells('I4:L9')
+                except (ValueError, KeyError):
+                    pass # Already unmerged or not a valid range
+                break
+
         # Merge cells I4:L9 to create the info box
         ws.merge_cells('I4:L9')
         
@@ -358,6 +416,12 @@ def map_data_to_excel(wb: openpyxl.Workbook, data: Dict[str, Any]) -> openpyxl.W
         for idx, product in enumerate(items, start=1):
             row = 11 + idx
             set_product_data(ws, row, product)
+        
+        # Recreate Expedícia section at its new position
+        # It should be 2 rows after the last product row
+        last_product_row = 11 + len(items)
+        new_expedicia_start_row = last_product_row + 2
+        _recreate_expedicia_section(ws, new_expedicia_start_row)
         
         return wb
     except Exception as e:
@@ -418,6 +482,7 @@ def process_all_pdfs(input_folder: str, template_file: str, output_folder: str):
             
             print(f"Successfully processed {pdf_file}")
             print(f"Excel file created: {excel_filename}")
+            time.sleep(10) # Add a delay between processing each PDF to respect API rate limits
             
         except Exception as e:
             print(f"Error processing {pdf_file}: {str(e)}")
@@ -454,4 +519,4 @@ def main():
         print(f"Error in main process: {str(e)}")
 
 if __name__ == "__main__":
-    main() 
+    main()
