@@ -104,6 +104,7 @@ Important Rule for All Fields(7-13):
     - The next product name is found, OR
     - The end of the product details is found
     A single product's information may span across multiple pages. Always collect ALL information for a product across pages before moving to the next product
+    Maintain the order of products as they appear in the document.
 
     
 7. Item Name – Extract the product name following these rules:
@@ -113,11 +114,14 @@ Important Rule for All Fields(7-13):
    - Extract everything before any product ID numbers
    
    Examples:
-   Input: "1. HYALURONIC ACTIVE+ CREAM RICH, Art.: 277137"
+   Input 1: "HYALURONIC ACTIVE+ CREAM RICH, Art.: 277137"
    Correct output: "HYALURONIC ACTIVE+ CREAM RICH, Art.: 277137"
    
-   Input: "2. Anglický humor"
+   Input 2: "Anglický humor"
    Correct output: "Anglický humor"
+
+   Input 3: "Age Decode"
+    Correct output: "Age Decode"
 
    Keep in mind do not include product id (e.g. MINIPAK product ID: O2025097 - 1) in the item name. Always Item Name will be before product id.
 
